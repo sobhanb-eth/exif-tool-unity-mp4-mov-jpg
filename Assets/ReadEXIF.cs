@@ -1,174 +1,210 @@
 ﻿using UnityEngine;
 using System.Collections;
+using System.IO;
 using UnityEngine.Networking;
 using UnityEngine.UI;
-
-// Unity 2019 update to TestUnityExif (from https://www.codeproject.com/Articles/47486/Understanding-and-Reading-Exif-Data)
-// ExifReader described here: http://www.takenet.or.jp/~ryuuji/minisoft/exifread/english/ 
-
+using VideoLib;
+using ExifLib;
 
 public class ReadEXIF : MonoBehaviour
 {
+    public RawImage imageHolder; // defined in Unity Inspector
+    public Text ExifData;
+    // For Video
+    public Text MediaData;
+    public InputField newMediaFileInputField;
+    public Button newMediaFileButton;
 
-	/// <summary>
-	/// Sample file online at "https://lh3.googleusercontent.com/-1c82FJozx0s/U67jGIfUKXI/AAAAAAAAFyM/sdYWzujT9GA/s0-U-I/IMG_1939.JPG";
-	/// </summary>
+    public InputField newImageFileInputField;
+    public Button newImageFileButton;
+    public Button rotateButton;
+    private Texture2D texture = null;
+    private Texture2D newTexture;
+    private string imagePath;
+    private string mediaPath;
+    private string orientationString;
 
-	public RawImage imageHolder; // defined in Unity Inspector
-	public Text ExifData;
-	public InputField newImageFileInputField;
-	public Button newImageFileButton;
-	public Button rotateButton;
-	private Texture2D texture = null;
-	private string imagePath;
-	private Texture2D newTexture;
-	private string orientationString;
+    void Awake()
+    {
+        newImageFileButton.onClick.AddListener(newImageFile);
+        rotateButton.onClick.AddListener(Rotate90Clockwise);
 
-	void Awake()
-	{
-		newImageFileButton.onClick.AddListener(newImageFile);
-		rotateButton.onClick.AddListener(Rotate90Clockwise);
-		newImageFile();
-		Debug.Log("Persistent path = " + Application.persistentDataPath);   //If you have permissions issues, put your image file here to find it!
+        newMediaFileButton.onClick.AddListener(LoadMediaFile);
 
-	}
+        Debug.Log("Persistent path = " + Application.persistentDataPath);   //If you have permissions issues, put your image file here to find it!
+    }
 
+    public void LoadMediaFile()
+    {
+        mediaPath = newMediaFileInputField.text;
+        StartCoroutine(LoadMedia());
+    }
 
-	public void newImageFile()
-	{
-		imagePath = newImageFileInputField.text;
-		StartCoroutine(LoadTexture());
-	}
+    IEnumerator LoadMedia()
+    {
+        UnityWebRequest www = UnityWebRequest.Get(mediaPath);
+        yield return www.SendWebRequest();
 
-	IEnumerator LoadTexture()
-	{
-		yield return StartCoroutine(LoadByteArrayIntoTexture(this.imagePath));
-		if (imageHolder)
-		{
-			imageHolder.texture = this.texture;
-			CorrectRotation();
-			imageHolder.SizeToParent(); // see CanvasExtensions.cs for this code
-		}
-	}
+        if (www.isNetworkError || www.isHttpError)
+        {
+            Debug.Log(www.error);
+        }
+        else
+        {
+            byte[] results = www.downloadHandler.data;
+            string extension = Path.GetExtension(mediaPath).ToLower();
 
+            if (extension == ".jpg" || extension == ".jpeg" || extension == ".png")
+            {
+                // Handle image files
+                HandleImage(results);
+            }
+            else if (extension == ".mp4" || extension == ".mov" || extension == ".avi")
+            {
+                // Handle video files
+                HandleVideo(results);
+            }
+            else
+            {
+                Debug.Log("Unsupported file type.");
+            }
+        }
+    }
 
-	/// <summary>
-	/// ExifLib - http://www.codeproject.com/Articles/47486/Understanding-and-Reading-Exif-Data
-	/// </summary>
+    void HandleVideo(byte[] data)
+    {
+        VideoInfo videoInfo = VideoMetadataReader.ReadVideo(data, Path.GetFileName(mediaPath));
 
+        MediaData.text = "<b>Video Data:</b>" + "<color=white>";
+        MediaData.text += "\n" + "FileName: " + videoInfo.FileName;
+        MediaData.text += "\n" + "Width: " + videoInfo.Width + " pixels";
+        MediaData.text += "\n" + "Height: " + videoInfo.Height + " pixels";
+        MediaData.text += "\n" + "Rotation: " + videoInfo.Rotation + " degrees";
+        MediaData.text += "</color>";
+    }
 
-IEnumerator LoadByteArrayIntoTexture(string url)
-	{
-	UnityWebRequest www = UnityWebRequest.Get(url);
-	yield return www.SendWebRequest();
+    public void newImageFile()
+    {
+        imagePath = newImageFileInputField.text;
+        StartCoroutine(LoadTexture());
+    }
 
-	if (www.isNetworkError || www.isHttpError)
-	{
-		Debug.Log(www.error);
-	}
-	else
-	{
-		// retrieve results as binary data
-		byte[] results = www.downloadHandler.data;
+    IEnumerator LoadTexture()
+    {
+        UnityWebRequest www = UnityWebRequest.Get(imagePath);
+        yield return www.SendWebRequest();
 
-			Debug.Log("Finished Getting Image -> SIZE: " + results.Length.ToString());
-			ExifLib.JpegInfo jpi = ExifLib.ExifReader.ReadJpeg(results, "Sample File");
+        if (www.isNetworkError || www.isHttpError)
+        {
+            Debug.Log(www.error);
+        }
+        else
+        {
+            // retrieve results as binary data
+            byte[] results = www.downloadHandler.data;
 
+            HandleImage(results);
 
-			double[] Latitude = jpi.GpsLatitude;
-			double[] Longitude = jpi.GpsLongitude;
-			orientationString = jpi.Orientation.ToString();
+            if (imageHolder)
+            {
+                imageHolder.texture = this.texture;
+                CorrectRotation();
+                imageHolder.SizeToParent(); // see CanvasExtensions.cs for this code
+            }
+        }
+    }
 
-			ExifData.text = "<b>Exif Data:</b>" + "<color=white>";
-			ExifData.text = ExifData.text + "\n" + "FileName: " + jpi.FileName;
-			ExifData.text = ExifData.text + "\n" + "DateTime: " + jpi.DateTime;
-			ExifData.text = ExifData.text + "\n" + "GpsLatitude: " + Latitude[0] + "° " + Latitude[1] + "' " + Latitude[2] + '"';
-			ExifData.text = ExifData.text + "\n" + "GpsLongitude: " + Longitude[0] + "° " + Longitude[1] + "' " + Longitude[2] + '"';
-			ExifData.text = ExifData.text + "\n" + "Description: " + jpi.Description;
-			ExifData.text = ExifData.text + "\n" + "Height: " + jpi.Height + " pixels";
-			ExifData.text = ExifData.text + "\n" + "Width: " + jpi.Width + " pixels";
-			ExifData.text = ExifData.text + "\n" + "ResolutionUnit: " + jpi.ResolutionUnit;
-			ExifData.text = ExifData.text + "\n" + "UserComment: " + jpi.UserComment;
-			ExifData.text = ExifData.text + "\n" + "Make: " + jpi.Make;
-			ExifData.text = ExifData.text + "\n" + "Model: " + jpi.Model;
-			ExifData.text = ExifData.text + "\n" + "Software: " + jpi.Software;
-			ExifData.text = ExifData.text + "\n" + "Orientation: " + orientationString;
-			ExifData.text = ExifData.text + "</color>";
+    void HandleImage(byte[] data)
+    {
+        Debug.Log("Finished Getting Image -> SIZE: " + data.Length.ToString());
+        ExifLib.JpegInfo jpi = ExifLib.ExifReader.ReadJpeg(data, Path.GetFileName(imagePath));
 
-			Texture2D tex = new Texture2D(2, 2);
-			tex.LoadImage(results);
-			newTexture = tex;
+        double[] Latitude = jpi.GpsLatitude;
+        double[] Longitude = jpi.GpsLongitude;
+        orientationString = jpi.Orientation.ToString();
 
-			// Not sure why, but many images come in flipped 180 degrees
-			//newTexture = rotateTexture(newTexture, true); // Rotate clockwise 90 degrees
-			//newTexture = rotateTexture(newTexture, true); // Rotate clockwise 90 degrees (again, to flip it)
-			this.texture = newTexture;
-		}
-}
+        ExifData.text = "<b>Exif Data:</b>" + "<color=white>";
+        ExifData.text += "\n" + "FileName: " + jpi.FileName;
+        ExifData.text += "\n" + "DateTime: " + jpi.DateTime;
+        ExifData.text += "\n" + "GpsLatitude: " + Latitude[0] + "° " + Latitude[1] + "' " + Latitude[2] + '"';
+        ExifData.text += "\n" + "GpsLongitude: " + Longitude[0] + "° " + Longitude[1] + "' " + Longitude[2] + '"';
+        ExifData.text += "\n" + "Description: " + jpi.Description;
+        ExifData.text += "\n" + "Height: " + jpi.Height + " pixels";
+        ExifData.text += "\n" + "Width: " + jpi.Width + " pixels";
+        ExifData.text += "\n" + "ResolutionUnit: " + jpi.ResolutionUnit;
+        ExifData.text += "\n" + "UserComment: " + jpi.UserComment;
+        ExifData.text += "\n" + "Make: " + jpi.Make;
+        ExifData.text += "\n" + "Model: " + jpi.Model;
+        ExifData.text += "\n" + "Software: " + jpi.Software;
+        ExifData.text += "\n" + "Orientation: " + orientationString;
+        ExifData.text += "</color>";
 
+        Texture2D tex = new Texture2D(2, 2);
+        tex.LoadImage(data);
+        newTexture = tex;
 
+        this.texture = newTexture;
+    }
 
-	public void CorrectRotation()
-	{
-		// tries to use the jpi.Orientation to rotate the image properly
-		newTexture = (Texture2D)imageHolder.texture;
+    public void CorrectRotation()
+    {
+        // tries to use the jpi.Orientation to rotate the image properly
+        newTexture = (Texture2D)imageHolder.texture;
 
-		switch (orientationString)
-		{
-			case "TopRight": // Rotate clockwise 90 degrees
-				newTexture = rotateTexture(newTexture, true);
-				break;
-			case "TopLeft": // Rotate 0 degrees...
-				break;
-			case "BottomRight": // Rotate clockwise 180 degrees
-				newTexture = rotateTexture(newTexture, true);
-				newTexture = rotateTexture(newTexture, true);
-				break;
-			case "BottomLeft": // Rotate clockwise 270 degrees (I think?)...
-				newTexture = rotateTexture(newTexture, true);
-				newTexture = rotateTexture(newTexture, true);
-				break;
-			default:
-				break;
-		}
+        switch (orientationString)
+        {
+            case "TopRight": // Rotate clockwise 90 degrees
+                newTexture = rotateTexture(newTexture, true);
+                break;
+            case "TopLeft": // Rotate 0 degrees...
+                break;
+            case "BottomRight": // Rotate clockwise 180 degrees
+                newTexture = rotateTexture(newTexture, true);
+                newTexture = rotateTexture(newTexture, true);
+                break;
+            case "BottomLeft": // Rotate clockwise 270 degrees
+                newTexture = rotateTexture(newTexture, true);
+                newTexture = rotateTexture(newTexture, true);
+                newTexture = rotateTexture(newTexture, true);
+                break;
+            default:
+                break;
+        }
 
+        imageHolder.texture = newTexture;
+        imageHolder.SizeToParent(); // see CanvasExtensions.cs for this code
+    }
 
-		imageHolder.texture = newTexture;
-		imageHolder.SizeToParent(); // see CanvasExtensions.cs for this code
+    public void Rotate90Clockwise()
+    {
+        newTexture = (Texture2D)imageHolder.texture;
+        newTexture = rotateTexture(newTexture, true); // Rotate clockwise 90 degrees
+        imageHolder.texture = newTexture;
+        imageHolder.SizeToParent(); // see CanvasExtensions.cs for this code
+    }
 
-	}
+    Texture2D rotateTexture(Texture2D originalTexture, bool clockwise)
+    {
+        Color32[] original = originalTexture.GetPixels32();
+        Color32[] rotated = new Color32[original.Length];
+        int w = originalTexture.width;
+        int h = originalTexture.height;
 
-	public void Rotate90Clockwise()
-	{
-		newTexture = (Texture2D)imageHolder.texture;
-		newTexture = rotateTexture(newTexture, true); // Rotate clockwise 90 degrees
-		imageHolder.texture = newTexture;
-		imageHolder.SizeToParent(); // see CanvasExtensions.cs for this code
+        int iRotated, iOriginal;
 
-	}
+        for (int j = 0; j < h; ++j)
+        {
+            for (int i = 0; i < w; ++i)
+            {
+                iRotated = (i + 1) * h - j - 1;
+                iOriginal = clockwise ? original.Length - 1 - (j * w + i) : j * w + i;
+                rotated[iRotated] = original[iOriginal];
+            }
+        }
 
-	Texture2D rotateTexture(Texture2D originalTexture, bool clockwise)
-	{
-		Color32[] original = originalTexture.GetPixels32();
-		Color32[] rotated = new Color32[original.Length];
-		int w = originalTexture.width;
-		int h = originalTexture.height;
-
-		int iRotated, iOriginal;
-
-		for (int j = 0; j < h; ++j)
-		{
-			for (int i = 0; i < w; ++i)
-			{
-				iRotated = (i + 1) * h - j - 1;
-				iOriginal = clockwise ? original.Length - 1 - (j * w + i) : j * w + i;
-				rotated[iRotated] = original[iOriginal];
-			}
-		}
-
-		Texture2D rotatedTexture = new Texture2D(h, w);
-		rotatedTexture.SetPixels32(rotated);
-		rotatedTexture.Apply();
-		return rotatedTexture;
-	}
+        Texture2D rotatedTexture = new Texture2D(h, w);
+        rotatedTexture.SetPixels32(rotated);
+        rotatedTexture.Apply();
+        return rotatedTexture;
+    }
 }
