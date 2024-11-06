@@ -48,11 +48,12 @@ public class ReadEXIF : MonoBehaviour
         videoRotateButton.onClick.AddListener(RotateVideo);
 
         // Store the default materials
-        videoDefaultMaterial = videoHolder.material;
-        imageDefaultMaterial = imageHolder.material;
+        Shader defaultShader = Shader.Find("Universal Render Pipeline/Unlit");
+        videoDefaultMaterial = new Material(defaultShader);
+        imageDefaultMaterial = new Material(defaultShader);
 
         // Create materials with the rotation shader
-        Shader rotationShader = Shader.Find("Custom/RotateTextureShader");
+        Shader rotationShader = Shader.Find("Custom/RotateTextureURP");
         videoRotationMaterial = new Material(rotationShader);
         imageRotationMaterial = new Material(rotationShader);
 
@@ -97,7 +98,7 @@ public class ReadEXIF : MonoBehaviour
         UnityWebRequest www = UnityWebRequest.Get(mediaPath);
         yield return www.SendWebRequest();
 
-        if (www.isNetworkError || www.isHttpError)
+        if (www.result != UnityWebRequest.Result.Success)
         {
             Debug.Log(www.error);
         }
@@ -153,8 +154,14 @@ public class ReadEXIF : MonoBehaviour
         videoPlayer.source = VideoSource.Url;
         videoPlayer.url = tempVideoPath;
 
-        // Set the VideoPlayer to render to the RawImage's texture
-        videoPlayer.renderMode = VideoRenderMode.APIOnly;
+        // Create a RenderTexture for the video
+        RenderTexture renderTexture = new RenderTexture(1920, 1080, 0); // Adjust dimensions as needed
+
+        videoPlayer.targetTexture = renderTexture;
+
+        // Assign the RenderTexture to the RawImage
+        videoHolder.texture = renderTexture;
+
         videoPlayer.Prepare();
 
         // Wait until the video is prepared
@@ -162,9 +169,6 @@ public class ReadEXIF : MonoBehaviour
         {
             yield return null;
         }
-
-        // Assign the video texture to the RawImage
-        videoHolder.texture = videoPlayer.texture;
 
         if (usePixelRotation)
         {
@@ -224,13 +228,13 @@ public class ReadEXIF : MonoBehaviour
         UnityWebRequest www = UnityWebRequest.Get(imagePath);
         yield return www.SendWebRequest();
 
-        if (www.isNetworkError || www.isHttpError)
+        if (www.result != UnityWebRequest.Result.Success)
         {
             Debug.Log(www.error);
         }
         else
         {
-            // retrieve results as binary data
+            // Retrieve results as binary data
             byte[] results = www.downloadHandler.data;
 
             HandleImage(results);
