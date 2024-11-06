@@ -5,24 +5,31 @@ using UnityEngine.Networking;
 using UnityEngine.UI;
 using VideoLib;
 using ExifLib;
+using UnityEngine.Video;
 
 public class ReadEXIF : MonoBehaviour
 {
-    public RawImage imageHolder; // defined in Unity Inspector
+    public RawImage imageHolder; // For image preview
     public Text ExifData;
+
     // For Video
+    public RawImage videoHolder; // For video preview
     public Text MediaData;
     public InputField newMediaFileInputField;
     public Button newMediaFileButton;
+    public Button videoRotateButton; // Add this in your UI
 
     public InputField newImageFileInputField;
     public Button newImageFileButton;
     public Button rotateButton;
+
     private Texture2D texture = null;
     private Texture2D newTexture;
     private string imagePath;
     private string mediaPath;
     private string orientationString;
+
+    private float videoRotationAngle = 0f;
 
     void Awake()
     {
@@ -30,8 +37,9 @@ public class ReadEXIF : MonoBehaviour
         rotateButton.onClick.AddListener(Rotate90Clockwise);
 
         newMediaFileButton.onClick.AddListener(LoadMediaFile);
+        videoRotateButton.onClick.AddListener(RotateVideo);
 
-        Debug.Log("Persistent path = " + Application.persistentDataPath);   //If you have permissions issues, put your image file here to find it!
+        Debug.Log("Persistent path = " + Application.persistentDataPath);   // If you have permissions issues, put your image file here to find it!
     }
 
     public void LoadMediaFile()
@@ -81,6 +89,58 @@ public class ReadEXIF : MonoBehaviour
         MediaData.text += "\n" + "Height: " + videoInfo.Height + " pixels";
         MediaData.text += "\n" + "Rotation: " + videoInfo.Rotation + " degrees";
         MediaData.text += "</color>";
+
+        // Set initial rotation based on metadata
+        videoRotationAngle = videoInfo.Rotation;
+
+        // Play the video in the preview panel
+        StartCoroutine(PlayVideo(data));
+    }
+
+    IEnumerator PlayVideo(byte[] data)
+    {
+        // Save the video data to a temporary file
+        string tempVideoPath = Path.Combine(Application.temporaryCachePath, "tempVideo.mp4");
+
+        File.WriteAllBytes(tempVideoPath, data);
+
+        VideoPlayer videoPlayer = videoHolder.GetComponent<VideoPlayer>();
+
+        videoPlayer.source = VideoSource.Url;
+        videoPlayer.url = tempVideoPath;
+
+        // Adjust the videoHolder rotation
+        videoHolder.rectTransform.localEulerAngles = new Vector3(0, 0, -videoRotationAngle);
+
+        // Adjust the size
+        videoHolder.SizeToParent();
+
+        videoPlayer.Prepare();
+
+        // Wait until the video is prepared
+        while (!videoPlayer.isPrepared)
+        {
+            yield return null;
+        }
+
+        // Play the video
+        videoPlayer.Play();
+    }
+
+    public void RotateVideo()
+    {
+        // Rotate the video by 90 degrees
+        videoRotationAngle += 90f;
+        if (videoRotationAngle >= 360f)
+        {
+            videoRotationAngle -= 360f;
+        }
+
+        // Apply the rotation
+        videoHolder.rectTransform.localEulerAngles = new Vector3(0, 0, -videoRotationAngle);
+
+        // Adjust the size after rotation
+        videoHolder.SizeToParent();
     }
 
     public void newImageFile()
@@ -206,5 +266,15 @@ public class ReadEXIF : MonoBehaviour
         rotatedTexture.SetPixels32(rotated);
         rotatedTexture.Apply();
         return rotatedTexture;
+    }
+    
+    void OnDestroy()
+    {
+        // Delete temporary video file
+        string tempVideoPath = Path.Combine(Application.temporaryCachePath, "tempVideo.mp4");
+        if (File.Exists(tempVideoPath))
+        {
+            File.Delete(tempVideoPath);
+        }
     }
 }

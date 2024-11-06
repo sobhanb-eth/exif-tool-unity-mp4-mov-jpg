@@ -1,31 +1,58 @@
 ﻿using UnityEngine;
 using UnityEngine.UI;
 
-static class CanvasExtensions
+public static class CanvasExtensions
 {
-    public static Vector2 SizeToParent(this RawImage image, float padding = 0.0f)
+    public static void SizeToParent(this RawImage image, float padding = 0.0f)
     {
-        var parent = image.transform.parent.GetComponent<RectTransform>();
-        var imageTransform = image.GetComponent<RectTransform>();
-        if (!parent) { return imageTransform.sizeDelta; } //if we don't have a parent, just return our current width;
-        padding = 1 - padding;
-        float w = 0, h = 0;
-        float ratio = image.texture.width / (float)image.texture.height;
-        var bounds = new Rect(0, 200, parent.rect.width, parent.rect.height);
-        if (Mathf.RoundToInt(imageTransform.eulerAngles.z) % 180 == 90)
-        {
-            //Invert the bounds if the image is rotated
-            bounds.size = new Vector2(bounds.height, bounds.width);
-        }
-        //Size by height first
-        h = bounds.height * padding;
-        w = h * ratio;
-        if (w > bounds.width * padding)
-        { //If it doesn't fit, fallback to width;
-            w = bounds.width * padding;
-            h = w / ratio;
-        }
-        imageTransform.sizeDelta = new Vector2(w, h);
-        return imageTransform.sizeDelta;
+        RectTransform parent = image.transform.parent as RectTransform;
+        RectTransform imageTransform = image.rectTransform;
+
+        if (parent == null)
+            return;
+
+        // Set pivot to center
+        imageTransform.pivot = new Vector2(0.5f, 0.5f);
+
+        // Calculate the available size in the parent, considering padding
+        float paddingHorizontal = padding * 2;
+        float paddingVertical = padding * 2;
+
+        float parentWidth = parent.rect.width - paddingHorizontal;
+        float parentHeight = parent.rect.height - paddingVertical;
+
+        // Get the rotation angle in radians
+        float angle = imageTransform.eulerAngles.z * Mathf.Deg2Rad;
+
+        // Calculate the cosine and sine of the angle
+        float cos = Mathf.Abs(Mathf.Cos(angle));
+        float sin = Mathf.Abs(Mathf.Sin(angle));
+
+        // Calculate the dimensions of the rotated image
+        float imageWidth = image.texture.width;
+        float imageHeight = image.texture.height;
+        float imageRatio = imageWidth / imageHeight;
+
+        // Effective width and height after rotation
+        float effectiveWidth = imageWidth * cos + imageHeight * sin;
+        float effectiveHeight = imageWidth * sin + imageHeight * cos;
+
+        // Scaling factors to fit the rotated image within the parent
+        float scaleX = parentWidth / effectiveWidth;
+        float scaleY = parentHeight / effectiveHeight;
+
+        // Use the smaller scale to maintain aspect ratio
+        float scale = Mathf.Min(scaleX, scaleY);
+
+        // Apply the scale to the original image dimensions
+        float finalWidth = imageWidth * scale;
+        float finalHeight = imageHeight * scale;
+
+        // Set the size of the RectTransform
+        imageTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, finalWidth);
+        imageTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, finalHeight);
+
+        // Center the image
+        imageTransform.anchoredPosition = Vector2.zero;
     }
 }
