@@ -17,11 +17,13 @@ public class ReadEXIF : MonoBehaviour
     public Text MediaData;
     public InputField newMediaFileInputField;
     public Button newMediaFileButton;
-    public Button videoRotateButton; // Add this in your UI
+    public Button videoRotateButton; // Rotation button for video
 
     public InputField newImageFileInputField;
     public Button newImageFileButton;
-    public Button rotateButton;
+    public Button rotateButton; // Rotation button for image
+
+    public bool usePixelRotation = true; // Checkbox to toggle rotation method
 
     private Texture2D texture = null;
     private Texture2D newTexture;
@@ -30,6 +32,12 @@ public class ReadEXIF : MonoBehaviour
     private string orientationString;
 
     private float videoRotationAngle = 0f;
+    private float imageRotationAngle = 0f;
+
+    private Material videoDefaultMaterial;
+    private Material imageDefaultMaterial;
+    private Material videoRotationMaterial;
+    private Material imageRotationMaterial;
 
     void Awake()
     {
@@ -39,7 +47,43 @@ public class ReadEXIF : MonoBehaviour
         newMediaFileButton.onClick.AddListener(LoadMediaFile);
         videoRotateButton.onClick.AddListener(RotateVideo);
 
-        Debug.Log("Persistent path = " + Application.persistentDataPath);   // If you have permissions issues, put your image file here to find it!
+        // Store the default materials
+        videoDefaultMaterial = videoHolder.material;
+        imageDefaultMaterial = imageHolder.material;
+
+        // Create materials with the rotation shader
+        Shader rotationShader = Shader.Find("Custom/RotateTextureShader");
+        videoRotationMaterial = new Material(rotationShader);
+        imageRotationMaterial = new Material(rotationShader);
+
+        // Set initial materials based on usePixelRotation
+        UpdateMaterials();
+
+        Debug.Log("Persistent path = " + Application.persistentDataPath);
+    }
+
+    void OnValidate()
+    {
+        if (videoHolder != null && imageHolder != null)
+        {
+            UpdateMaterials();
+        }
+    }
+
+    void UpdateMaterials()
+    {
+        if (usePixelRotation)
+        {
+            // Use rotation materials
+            videoHolder.material = videoRotationMaterial;
+            imageHolder.material = imageRotationMaterial;
+        }
+        else
+        {
+            // Use default materials
+            videoHolder.material = videoDefaultMaterial;
+            imageHolder.material = imageDefaultMaterial;
+        }
     }
 
     public void LoadMediaFile()
@@ -91,7 +135,7 @@ public class ReadEXIF : MonoBehaviour
         MediaData.text += "</color>";
 
         // Set initial rotation based on metadata
-        videoRotationAngle = videoInfo.Rotation;
+        videoRotationAngle = videoInfo.Rotation % 360f;
 
         // Play the video in the preview panel
         StartCoroutine(PlayVideo(data));
@@ -109,12 +153,8 @@ public class ReadEXIF : MonoBehaviour
         videoPlayer.source = VideoSource.Url;
         videoPlayer.url = tempVideoPath;
 
-        // Adjust the videoHolder rotation
-        videoHolder.rectTransform.localEulerAngles = new Vector3(0, 0, -videoRotationAngle);
-
-        // Adjust the size
-        videoHolder.SizeToParent();
-
+        // Set the VideoPlayer to render to the RawImage's texture
+        videoPlayer.renderMode = VideoRenderMode.APIOnly;
         videoPlayer.Prepare();
 
         // Wait until the video is prepared
@@ -122,6 +162,27 @@ public class ReadEXIF : MonoBehaviour
         {
             yield return null;
         }
+
+        // Assign the video texture to the RawImage
+        videoHolder.texture = videoPlayer.texture;
+
+        if (usePixelRotation)
+        {
+            // Set initial rotation in the shader
+            videoRotationMaterial.SetFloat("_Rotation", videoRotationAngle);
+        }
+        else
+        {
+            // Reset RectTransform rotation
+            videoHolder.rectTransform.localEulerAngles = Vector3.zero;
+            // Apply initial rotation to RectTransform
+            videoHolder.rectTransform.localEulerAngles = new Vector3(0, 0, -videoRotationAngle);
+            // Adjust the size after rotation
+            videoHolder.SizeToParent();
+        }
+
+        // Adjust the size
+        videoHolder.SizeToParent();
 
         // Play the video
         videoPlayer.Play();
@@ -136,11 +197,20 @@ public class ReadEXIF : MonoBehaviour
             videoRotationAngle -= 360f;
         }
 
-        // Apply the rotation
-        videoHolder.rectTransform.localEulerAngles = new Vector3(0, 0, -videoRotationAngle);
-
-        // Adjust the size after rotation
-        videoHolder.SizeToParent();
+        if (usePixelRotation)
+        {
+            // Apply the rotation to the shader
+            videoRotationMaterial.SetFloat("_Rotation", videoRotationAngle);
+        }
+        else
+        {
+            // Reset RectTransform rotation
+            videoHolder.rectTransform.localEulerAngles = Vector3.zero;
+            // Apply rotation to the RectTransform
+            videoHolder.rectTransform.localEulerAngles = new Vector3(0, 0, -videoRotationAngle);
+            // Adjust the size after rotation
+            videoHolder.SizeToParent();
+        }
     }
 
     public void newImageFile()
@@ -168,8 +238,11 @@ public class ReadEXIF : MonoBehaviour
             if (imageHolder)
             {
                 imageHolder.texture = this.texture;
+
+                // Correct rotation based on EXIF data
                 CorrectRotation();
-                imageHolder.SizeToParent(); // see CanvasExtensions.cs for this code
+
+                imageHolder.SizeToParent(); // Adjust the size
             }
         }
     }
@@ -208,39 +281,62 @@ public class ReadEXIF : MonoBehaviour
 
     public void CorrectRotation()
     {
-        // tries to use the jpi.Orientation to rotate the image properly
-        newTexture = (Texture2D)imageHolder.texture;
-
+        // Rotate the image based on the EXIF orientation
         switch (orientationString)
         {
             case "TopRight": // Rotate clockwise 90 degrees
-                newTexture = rotateTexture(newTexture, true);
-                break;
-            case "TopLeft": // Rotate 0 degrees...
+                imageRotationAngle = 90f;
                 break;
             case "BottomRight": // Rotate clockwise 180 degrees
-                newTexture = rotateTexture(newTexture, true);
-                newTexture = rotateTexture(newTexture, true);
+                imageRotationAngle = 180f;
                 break;
             case "BottomLeft": // Rotate clockwise 270 degrees
-                newTexture = rotateTexture(newTexture, true);
-                newTexture = rotateTexture(newTexture, true);
-                newTexture = rotateTexture(newTexture, true);
+                imageRotationAngle = 270f;
                 break;
-            default:
+            default: // "TopLeft" and others
+                imageRotationAngle = 0f;
                 break;
         }
 
-        imageHolder.texture = newTexture;
-        imageHolder.SizeToParent(); // see CanvasExtensions.cs for this code
+        if (usePixelRotation)
+        {
+            // Apply rotation in the shader
+            imageRotationMaterial.SetFloat("_Rotation", imageRotationAngle);
+        }
+        else
+        {
+            // Reset RectTransform rotation
+            imageHolder.rectTransform.localEulerAngles = Vector3.zero;
+            // Apply rotation to the RectTransform
+            imageHolder.rectTransform.localEulerAngles = new Vector3(0, 0, -imageRotationAngle);
+            // Adjust the size after rotation
+            imageHolder.SizeToParent();
+        }
     }
 
     public void Rotate90Clockwise()
     {
-        newTexture = (Texture2D)imageHolder.texture;
-        newTexture = rotateTexture(newTexture, true); // Rotate clockwise 90 degrees
-        imageHolder.texture = newTexture;
-        imageHolder.SizeToParent(); // see CanvasExtensions.cs for this code
+        // Rotate the image by 90 degrees
+        imageRotationAngle += 90f;
+        if (imageRotationAngle >= 360f)
+        {
+            imageRotationAngle -= 360f;
+        }
+
+        if (usePixelRotation)
+        {
+            // Apply rotation in the shader
+            imageRotationMaterial.SetFloat("_Rotation", imageRotationAngle);
+        }
+        else
+        {
+            // Reset RectTransform rotation
+            imageHolder.rectTransform.localEulerAngles = Vector3.zero;
+            // Apply rotation to the RectTransform
+            imageHolder.rectTransform.localEulerAngles = new Vector3(0, 0, -imageRotationAngle);
+            // Adjust the size after rotation
+            imageHolder.SizeToParent();
+        }
     }
 
     Texture2D rotateTexture(Texture2D originalTexture, bool clockwise)
